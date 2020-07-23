@@ -12,6 +12,9 @@ add_executable(duckstation-qt
   audiosettingswidget.cpp
   audiosettingswidget.h
   audiosettingswidget.ui
+  autoupdaterdialog.cpp
+  autoupdaterdialog.h
+  autoupdaterdialog.ui
   consolesettingswidget.cpp
   consolesettingswidget.h
   consolesettingswidget.ui
