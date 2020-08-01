@@ -3,18 +3,24 @@
 #include "common/log.h"
 #include "common/state_wrapper.h"
 #include "cpu_core.h"
-#include "pgxp/pgxp_gpu.h"
+#include "pgxp.h"
 #include "settings.h"
 #include "system.h"
 #include <imgui.h>
 #include <sstream>
 Log_SetChannel(GPU_HW);
 
-GPU_HW::GPU_HW() : GPU() { m_vram_ptr = m_vram_shadow.data(); }
+GPU_HW::GPU_HW() : GPU()
+{
+  m_vram_ptr = m_vram_shadow.data();
+}
 
 GPU_HW::~GPU_HW() = default;
 
-bool GPU_HW::IsHardwareRenderer() const { return true; }
+bool GPU_HW::IsHardwareRenderer() const
+{
+  return true;
+}
 
 bool GPU_HW::Initialize(HostDisplay* host_display)
 {
@@ -227,7 +233,7 @@ void GPU_HW::LoadVertices()
       const u32 num_vertices = rc.quad_polygon ? 4 : 3;
       std::array<BatchVertex, 4> vertices;
       std::array<std::array<s32, 2>, 4> native_vertex_positions;
-      u8 valid_w = 1;
+      bool valid_w = g_settings.gpu_pgxp_texture_correction;
       for (u32 i = 0; i < num_vertices; i++)
       {
         const u32 color = (shaded && i > 0) ? (FifoPop() & UINT32_C(0x00FFFFFF)) : first_color;
@@ -243,8 +249,9 @@ void GPU_HW::LoadVertices()
 
         if (pgxp)
         {
-          valid_w &= PGXP_GetVertex(Truncate32(maddr_and_pos >> 32), vp.bits, native_x, native_y, m_drawing_offset.x,
-                                    m_drawing_offset.y, &vertices[i].x, &vertices[i].y, &vertices[i].w);
+          valid_w &=
+            PGXP::PGXP_GetVertex(Truncate32(maddr_and_pos >> 32), vp.bits, native_x, native_y, m_drawing_offset.x,
+                                 m_drawing_offset.y, &vertices[i].x, &vertices[i].y, &vertices[i].w);
         }
       }
       if (!valid_w)

@@ -3,7 +3,7 @@
 #include "common/bitutils.h"
 #include "common/state_wrapper.h"
 #include "cpu_core.h"
-#include "pgxp/pgxp_gte.h"
+#include "pgxp.h"
 #include "settings.h"
 #include <algorithm>
 #include <array>
@@ -634,7 +634,7 @@ static void RTPS(const s16 V[3], u8 shift, bool lm, bool last)
 
     precise_x = std::clamp<float>(precise_x, -0x400, 0x3ff);
     precise_y = std::clamp<float>(precise_y, -0x400, 0x3ff);
-    PGXP_pushSXYZ2f(precise_x, precise_y, precise_z, REGS.dr32[14]);
+    PGXP::PGXP_pushSXYZ2f(precise_x, precise_y, precise_z, REGS.dr32[14]);
   }
 
   if (last)
@@ -682,10 +682,10 @@ static void Execute_NCLIP(Instruction inst)
 
 static void Execute_NCLIP_PGXP(Instruction inst)
 {
-  if (PGXP_NLCIP_valid(REGS.dr32[12], REGS.dr32[13], REGS.dr32[14]))
+  if (PGXP::PGXP_NLCIP_valid(REGS.dr32[12], REGS.dr32[13], REGS.dr32[14]))
   {
     REGS.FLAG.Clear();
-    REGS.MAC0 = static_cast<s32>(PGXP_NCLIP());
+    REGS.MAC0 = static_cast<s32>(PGXP::PGXP_NCLIP());
   }
   else
   {
