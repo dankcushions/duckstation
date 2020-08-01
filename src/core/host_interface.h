@@ -149,6 +149,9 @@ protected:
   /// Adjusts the internal (render) resolution of the hardware backends.
   void ModifyResolutionScale(s32 increment);
 
+  /// Call when PGXP mode changes.
+  void UpdatePGXPMode(bool recompile_all_blocks);
+
   /// Updates software cursor state, based on controllers.
   void UpdateSoftwareCursor();
 

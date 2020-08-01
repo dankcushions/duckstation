@@ -8,8 +8,8 @@
 #include "common/log.h"
 #include "common/string_util.h"
 #include "controller.h"
-#include "cpu_core.h"
 #include "cpu_code_cache.h"
+#include "cpu_core.h"
 #include "dma.h"
 #include "gpu.h"
 #include "gte.h"
@@ -367,6 +367,10 @@ void HostInterface::SetDefaultSettings(SettingsInterface& si)
   si.SetBoolValue("GPU", "DisableInterlacing", false);
   si.SetBoolValue("GPU", "ForceNTSCTimings", false);
   si.SetBoolValue("GPU", "WidescreenHack", false);
+  si.SetBoolValue("GPU", "PGXPEnable", false);
+  si.SetBoolValue("GPU", "PGXPCulling", true);
+  si.SetBoolValue("GPU", "PGXPTextureCorrection", true);
+  si.SetBoolValue("GPU", "PGXPVertexCache", false);
 
   si.SetStringValue("Display", "CropMode", Settings::GetDisplayCropModeName(Settings::DEFAULT_DISPLAY_CROP_MODE));
   si.SetStringValue("Display", "AspectRatio",
@@ -483,6 +487,22 @@ void HostInterface::CheckForSettingsChanges(const Settings& old_settings)
         g_settings.display_aspect_ratio != old_settings.display_aspect_ratio)
     {
       g_gpu->UpdateSettings();
+    }
+
+    if (g_settings.gpu_pgxp_enable != old_settings.gpu_pgxp_enable ||
+        (g_settings.gpu_pgxp_enable && g_settings.gpu_pgxp_culling != old_settings.gpu_pgxp_culling))
+    {
+      if (g_settings.IsUsingCodeCache())
+        ReportFormattedMessage("PGXP %s, recompiling all blocks.", g_settings.gpu_pgxp_enable ? "enabled" : "disabled");
+
+      UpdatePGXPMode(true);
+    }
+
+    if (g_settings.gpu_pgxp_enable &&
+        (g_settings.gpu_pgxp_texture_correction != old_settings.gpu_pgxp_texture_correction ||
+         g_settings.gpu_pgxp_vertex_cache != old_settings.gpu_pgxp_vertex_cache))
+    {
+      UpdatePGXPMode(false);
     }
 
     if (g_settings.cdrom_read_thread != old_settings.cdrom_read_thread)
@@ -625,8 +645,7 @@ void HostInterface::ToggleSoftwareRendering()
   if (System::IsShutdown() || g_settings.gpu_renderer == GPURenderer::Software)
     return;
 
-  const GPURenderer new_renderer =
-    g_gpu->IsHardwareRenderer() ? GPURenderer::Software : g_settings.gpu_renderer;
+  const GPURenderer new_renderer = g_gpu->IsHardwareRenderer() ? GPURenderer::Software : g_settings.gpu_renderer;
 
   AddFormattedOSDMessage(2.0f, "Switching to %s renderer...", Settings::GetRendererDisplayName(new_renderer));
   System::RecreateGPU(new_renderer);
@@ -646,6 +665,14 @@ void HostInterface::ModifyResolutionScale(s32 increment)
 
   if (!System::IsShutdown())
     g_gpu->UpdateSettings();
+}
+
+void HostInterface::UpdatePGXPMode(bool recompile_all_blocks)
+{
+  // we need to recompile all blocks if pgxp is toggled on/off
+  CPU::SetPGXPMode();
+  if (g_settings.IsUsingCodeCache() && recompile_all_blocks)
+    CPU::CodeCache::Flush();
 }
 
 void HostInterface::UpdateSoftwareCursor()

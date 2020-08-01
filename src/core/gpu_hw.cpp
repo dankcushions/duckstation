@@ -222,6 +222,7 @@ void GPU_HW::LoadVertices()
       const u32 first_color = rc.color_for_first_vertex;
       const bool shaded = rc.shading_enable;
       const bool textured = rc.texture_enable;
+      const bool pgxp = g_settings.gpu_pgxp_enable;
 
       const u32 num_vertices = rc.quad_polygon ? 4 : 3;
       std::array<BatchVertex, 4> vertices;
@@ -240,7 +241,7 @@ void GPU_HW::LoadVertices()
         vertices[i].Set(static_cast<float>(native_x), static_cast<float>(native_y), depth, 1.0f, color, texpage,
                         texcoord);
 
-        if (true)
+        if (pgxp)
         {
           valid_w &= PGXP_GetVertex(Truncate32(maddr_and_pos >> 32), vp.bits, native_x, native_y, m_drawing_offset.x,
                                     m_drawing_offset.y, &vertices[i].x, &vertices[i].y, &vertices[i].w);

@@ -154,7 +154,6 @@ void Initialize()
 void Reset()
 {
   std::memset(&REGS, 0, sizeof(REGS));
-  PGXP_InitGTE();
 }
 
 bool DoState(StateWrapper& sw)
@@ -623,6 +622,7 @@ static void RTPS(const s16 V[3], u8 shift, bool lm, bool last)
   CheckMACOverflow<0>(Sy);
   PushSXY(s32(Sx >> 16), s32(Sy >> 16));
 
+  if (g_settings.gpu_pgxp_enable)
   {
     // this can potentially use increased precision on Z
     const float precise_z = std::max<float>((float)REGS.H / 2.f, (float)REGS.SZ3);
@@ -672,19 +672,25 @@ static void Execute_NCLIP(Instruction inst)
   // MAC0 =   SX0*SY1 + SX1*SY2 + SX2*SY0 - SX0*SY2 - SX1*SY0 - SX2*SY1
   REGS.FLAG.Clear();
 
+  TruncateAndSetMAC<0>(s64(REGS.SXY0[0]) * s64(REGS.SXY1[1]) + s64(REGS.SXY1[0]) * s64(REGS.SXY2[1]) +
+                         s64(REGS.SXY2[0]) * s64(REGS.SXY0[1]) - s64(REGS.SXY0[0]) * s64(REGS.SXY2[1]) -
+                         s64(REGS.SXY1[0]) * s64(REGS.SXY0[1]) - s64(REGS.SXY2[0]) * s64(REGS.SXY1[1]),
+                       0);
+
+  REGS.FLAG.UpdateError();
+}
+
+static void Execute_NCLIP_PGXP(Instruction inst)
+{
   if (PGXP_NLCIP_valid(REGS.dr32[12], REGS.dr32[13], REGS.dr32[14]))
   {
+    REGS.FLAG.Clear();
     REGS.MAC0 = static_cast<s32>(PGXP_NCLIP());
   }
   else
   {
-    TruncateAndSetMAC<0>(s64(REGS.SXY0[0]) * s64(REGS.SXY1[1]) + s64(REGS.SXY1[0]) * s64(REGS.SXY2[1]) +
-                           s64(REGS.SXY2[0]) * s64(REGS.SXY0[1]) - s64(REGS.SXY0[0]) * s64(REGS.SXY2[1]) -
-                           s64(REGS.SXY1[0]) * s64(REGS.SXY0[1]) - s64(REGS.SXY2[0]) * s64(REGS.SXY1[1]),
-                         0);
+    Execute_NCLIP(inst);
   }
-
-  REGS.FLAG.UpdateError();
 }
 
 static void Execute_AVSZ3(Instruction inst)
@@ -1017,8 +1023,13 @@ void ExecuteInstruction(u32 inst_bits)
       break;
 
     case 0x06:
-      Execute_NCLIP(inst);
-      break;
+    {
+      if (g_settings.gpu_pgxp_enable && g_settings.gpu_pgxp_culling)
+        Execute_NCLIP_PGXP(inst);
+      else
+        Execute_NCLIP(inst);
+    }
+    break;
 
     case 0x0C:
       Execute_OP(inst);
@@ -1115,7 +1126,12 @@ InstructionImpl GetInstructionImpl(u32 inst_bits)
       return &Execute_RTPS;
 
     case 0x06:
-      return &Execute_NCLIP;
+    {
+      if (g_settings.gpu_pgxp_enable && g_settings.gpu_pgxp_culling)
+        return &Execute_NCLIP_PGXP;
+      else
+        return &Execute_NCLIP;
+    }
 
     case 0x0C:
       return &Execute_OP;

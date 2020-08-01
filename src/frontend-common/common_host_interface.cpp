@@ -1295,6 +1295,16 @@ void CommonHostInterface::RegisterGraphicsHotkeys()
                      ToggleSoftwareRendering();
                  });
 
+  RegisterHotkey(StaticString("Graphics"), StaticString("TogglePGXP"), StaticString("Toggle PGXP"),
+                 [this](bool pressed) {
+                   if (!pressed)
+                   {
+                     g_settings.gpu_pgxp_enable = !g_settings.gpu_pgxp_enable;
+                     ReportFormattedMessage("PGXP is now %s.", g_settings.gpu_pgxp_enable ? "enabled" : "disabled");
+                     UpdatePGXPMode(true);
+                   }
+                 });
+
   RegisterHotkey(StaticString("Graphics"), StaticString("IncreaseResolutionScale"),
                  StaticString("Increase Resolution Scale"), [this](bool pressed) {
                    if (!pressed)
