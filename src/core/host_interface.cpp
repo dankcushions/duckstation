@@ -494,7 +494,10 @@ void HostInterface::CheckForSettingsChanges(const Settings& old_settings)
         (g_settings.gpu_pgxp_enable && g_settings.gpu_pgxp_culling != old_settings.gpu_pgxp_culling))
     {
       if (g_settings.IsUsingCodeCache())
+      {
         ReportFormattedMessage("PGXP %s, recompiling all blocks.", g_settings.gpu_pgxp_enable ? "enabled" : "disabled");
+        CPU::CodeCache::Flush();
+      }
 
       if (g_settings.gpu_pgxp_enable)
         PGXP::Initialize();
