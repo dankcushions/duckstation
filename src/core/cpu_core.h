@@ -61,7 +61,6 @@ struct State
 extern State g_state;
 
 void Initialize();
-void SetPGXPMode();
 void Shutdown();
 void Reset();
 bool DoState(StateWrapper& sw);

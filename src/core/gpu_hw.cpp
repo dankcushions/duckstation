@@ -250,7 +250,7 @@ void GPU_HW::LoadVertices()
         if (pgxp)
         {
           valid_w &=
-            PGXP::PGXP_GetVertex(Truncate32(maddr_and_pos >> 32), vp.bits, native_x, native_y, m_drawing_offset.x,
+            PGXP::GetPreciseVertex(Truncate32(maddr_and_pos >> 32), vp.bits, native_x, native_y, m_drawing_offset.x,
                                  m_drawing_offset.y, &vertices[i].x, &vertices[i].y, &vertices[i].w);
         }
       }

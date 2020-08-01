@@ -19,6 +19,7 @@
  ***************************************************************************/
 
 #include "pgxp.h"
+#include "settings.h"
 #include <cmath>
 
 namespace PGXP {
@@ -123,7 +124,11 @@ static void WriteMem16(PGXP_value* src, u32 addr);
 // pgxp_gpu.h
 void PGXP_CacheVertex(short sx, short sy, const PGXP_value* _pVertex);
 
+// pgxp_gte.h
+static void PGXP_InitGTE();
+
 // pgxp_cpu.h
+static void PGXP_InitCPU();
 static PGXP_value CPU_reg_mem[34];
 #define CPU_Hi CPU_reg[33]
 #define CPU_Lo CPU_reg[34]
@@ -146,6 +151,7 @@ void MaskValidate(PGXP_value* pV, u32 psxV, u32 mask, u32 validMask)
 }
 
 // pgxp_mem.c
+static void PGXP_InitMem();
 static PGXP_value Mem[3 * 2048 * 1024 / 4]; // mirror 2MB in 32-bit words * 3
 static const u32 UserMemOffset = 0;
 static const u32 ScratchOffset = 2048 * 1024 / 4;
@@ -319,7 +325,7 @@ void WriteMem16(PGXP_value* src, u32 addr)
 // pgxp_main.c
 u32 static gMode = 0;
 
-void PGXP_Init()
+void Initialize()
 {
   PGXP_InitMem();
   PGXP_InitCPU();
@@ -382,7 +388,7 @@ void PGXP_InitGTE()
 #define SXY2 (GTE_data_reg[14])
 #define SXYP (GTE_data_reg[15])
 
-void PGXP_pushSXYZ2f(float _x, float _y, float _z, unsigned int _v)
+void GTE_PushSXYZ2f(float _x, float _y, float _z, unsigned int _v)
 {
   static unsigned int uCount = 0;
   low_value temp;
@@ -392,14 +398,14 @@ void PGXP_pushSXYZ2f(float _x, float _y, float _z, unsigned int _v)
 
   SXY2.x = _x;
   SXY2.y = _y;
-  SXY2.z = (PGXP_GetModes() & PGXP_TEXTURE_CORRECTION) ? _z : 1.f;
+  SXY2.z = _z;
   SXY2.value = _v;
   SXY2.flags = VALID_ALL;
   SXY2.count = uCount++;
 
   // cache value in GPU plugin
   temp.word = _v;
-  if (PGXP_GetModes() & PGXP_VERTEX_CACHE)
+  if (g_settings.gpu_pgxp_vertex_cache)
     PGXP_CacheVertex(temp.x, temp.y, &SXY2);
   else
     PGXP_CacheVertex(0, 0, NULL);
@@ -409,21 +415,21 @@ void PGXP_pushSXYZ2f(float _x, float _y, float _z, unsigned int _v)
 #endif
 }
 
-void PGXP_pushSXYZ2s(s64 _x, s64 _y, s64 _z, u32 v)
+void GTE_PushSXYZ2s(s64 _x, s64 _y, s64 _z, u32 v)
 {
   float fx = (float)(_x) / (float)(1 << 16);
   float fy = (float)(_y) / (float)(1 << 16);
   float fz = (float)(_z);
 
   // if(Config.PGXP_GTE)
-  PGXP_pushSXYZ2f(fx, fy, fz, v);
+  GTE_PushSXYZ2f(fx, fy, fz, v);
 }
 
 #define VX(n) (psxRegs.CP2D.p[n << 1].sw.l)
 #define VY(n) (psxRegs.CP2D.p[n << 1].sw.h)
 #define VZ(n) (psxRegs.CP2D.p[(n << 1) + 1].sw.l)
 
-int PGXP_NLCIP_valid(u32 sxy0, u32 sxy1, u32 sxy2)
+int GTE_NCLIP_valid(u32 sxy0, u32 sxy1, u32 sxy2)
 {
   Validate(&SXY0, sxy0);
   Validate(&SXY1, sxy1);
@@ -433,7 +439,7 @@ int PGXP_NLCIP_valid(u32 sxy0, u32 sxy1, u32 sxy2)
   return 0;
 }
 
-float PGXP_NCLIP()
+float GTE_NCLIP()
 {
   float nclip = ((SX0 * SY1) + (SX1 * SY2) + (SX2 * SY0) - (SX0 * SY2) - (SX1 * SY0) - (SX2 * SY1));
 
@@ -481,7 +487,7 @@ static void PGXP_MTC2_int(PGXP_value value, u32 reg)
 // Data transfer tracking
 ////////////////////////////////////
 
-void PGXP_GTE_MFC2(u32 instr, u32 rtVal, u32 rdVal)
+void CPU_MFC2(u32 instr, u32 rtVal, u32 rdVal)
 {
   // CPU[Rt] = GTE_D[Rd]
   Validate(&GTE_data_reg[rd(instr)], rdVal);
@@ -489,7 +495,7 @@ void PGXP_GTE_MFC2(u32 instr, u32 rtVal, u32 rdVal)
   CPU_reg[rt(instr)].value = rtVal;
 }
 
-void PGXP_GTE_MTC2(u32 instr, u32 rdVal, u32 rtVal)
+void CPU_MTC2(u32 instr, u32 rdVal, u32 rtVal)
 {
   // GTE_D[Rd] = CPU[Rt]
   Validate(&CPU_reg[rt(instr)], rtVal);
@@ -497,7 +503,7 @@ void PGXP_GTE_MTC2(u32 instr, u32 rdVal, u32 rtVal)
   GTE_data_reg[rd(instr)].value = rdVal;
 }
 
-void PGXP_GTE_CFC2(u32 instr, u32 rtVal, u32 rdVal)
+void CPU_CFC2(u32 instr, u32 rtVal, u32 rdVal)
 {
   // CPU[Rt] = GTE_C[Rd]
   Validate(&GTE_ctrl_reg[rd(instr)], rdVal);
@@ -505,7 +511,7 @@ void PGXP_GTE_CFC2(u32 instr, u32 rtVal, u32 rdVal)
   CPU_reg[rt(instr)].value = rtVal;
 }
 
-void PGXP_GTE_CTC2(u32 instr, u32 rdVal, u32 rtVal)
+void CPU_CTC2(u32 instr, u32 rdVal, u32 rtVal)
 {
   // GTE_C[Rd] = CPU[Rt]
   Validate(&CPU_reg[rt(instr)], rtVal);
@@ -516,7 +522,7 @@ void PGXP_GTE_CTC2(u32 instr, u32 rdVal, u32 rtVal)
 ////////////////////////////////////
 // Memory Access
 ////////////////////////////////////
-void PGXP_GTE_LWC2(u32 instr, u32 rtVal, u32 addr)
+void CPU_LWC2(u32 instr, u32 rtVal, u32 addr)
 {
   // GTE_D[Rt] = Mem[addr]
   PGXP_value val;
@@ -524,7 +530,7 @@ void PGXP_GTE_LWC2(u32 instr, u32 rtVal, u32 addr)
   PGXP_MTC2_int(val, rt(instr));
 }
 
-void PGXP_GTE_SWC2(u32 instr, u32 rtVal, u32 addr)
+void CPU_SWC2(u32 instr, u32 rtVal, u32 addr)
 {
   //  Mem[addr] = GTE_D[Rt]
   Validate(&GTE_data_reg[rt(instr)], rtVal);
@@ -647,7 +653,7 @@ static float TruncateVertexPosition(float p)
   return static_cast<float>(static_cast<s16>(int_part << 5) >> 5) + (p - int_part_f);
 }
 
-bool PGXP_GetVertex(u32 addr, u32 value, int x, int y, int xOffs, int yOffs, float* out_x, float* out_y, float* out_w)
+bool GetPreciseVertex(u32 addr, u32 value, int x, int y, int xOffs, int yOffs, float* out_x, float* out_y, float* out_w)
 {
   const PGXP_value* vert = ReadMem(addr);
   if (vert && ((vert->flags & VALID_01) == VALID_01) && (vert->value == value))
@@ -706,7 +712,7 @@ void PGXP_InitCPU()
 }
 
 // invalidate register (invalid 8 bit read)
-void InvalidLoad(u32 addr, u32 code, u32 value)
+static void InvalidLoad(u32 addr, u32 code, u32 value)
 {
   u32 reg = ((code >> 16) & 0x1F); // The rt part of the instruction register
   PGXP_value* pD = NULL;
@@ -735,7 +741,7 @@ void InvalidLoad(u32 addr, u32 code, u32 value)
 }
 
 // invalidate memory address (invalid 8 bit write)
-void InvalidStore(u32 addr, u32 code, u32 value)
+static void InvalidStore(u32 addr, u32 code, u32 value)
 {
   u32 reg = ((code >> 16) & 0x1F); // The rt part of the instruction register
   PGXP_value* pD = NULL;
@@ -755,52 +761,36 @@ void InvalidStore(u32 addr, u32 code, u32 value)
   WriteMem(&p, addr);
 }
 
-void PGXP_CPU_LW(u32 instr, u32 rtVal, u32 addr)
+void CPU_LW(u32 instr, u32 rtVal, u32 addr)
 {
   // Rt = Mem[Rs + Im]
   ValidateAndCopyMem(&CPU_reg[rt(instr)], addr, rtVal);
 }
 
-void PGXP_CPU_LB(u32 instr, u8 rtVal, u32 addr)
+void CPU_LBx(u32 instr, u32 rtVal, u32 addr)
 {
   InvalidLoad(addr, instr, 116);
 }
 
-void PGXP_CPU_LBU(u32 instr, u8 rtVal, u32 addr)
+void CPU_LHx(u32 instr, u32 rtVal, u32 addr)
 {
-  InvalidLoad(addr, instr, 116);
+  // Rt = Mem[Rs + Im] (sign/zero extended)
+  ValidateAndCopyMem16(&CPU_reg[rt(instr)], addr, rtVal, 1);
 }
 
-void PGXP_CPU_LH(u32 instr, u16 rtVal, u32 addr)
-{
-  // Rt = Mem[Rs + Im] (sign extended)
-  psx_value val;
-  val.sd = (s32)(s16)rtVal;
-  ValidateAndCopyMem16(&CPU_reg[rt(instr)], addr, val.d, 1);
-}
-
-void PGXP_CPU_LHU(u32 instr, u16 rtVal, u32 addr)
-{
-  // Rt = Mem[Rs + Im] (zero extended)
-  psx_value val;
-  val.d = rtVal;
-  val.w.h = 0;
-  ValidateAndCopyMem16(&CPU_reg[rt(instr)], addr, val.d, 0);
-}
-
-void PGXP_CPU_SB(u32 instr, u8 rtVal, u32 addr)
+void CPU_SB(u32 instr, u8 rtVal, u32 addr)
 {
   InvalidStore(addr, instr, 208);
 }
 
-void PGXP_CPU_SH(u32 instr, u16 rtVal, u32 addr)
+void CPU_SH(u32 instr, u16 rtVal, u32 addr)
 {
   // validate and copy half value
   MaskValidate(&CPU_reg[rt(instr)], rtVal, 0xFFFF, VALID_0);
   WriteMem16(&CPU_reg[rt(instr)], addr);
 }
 
-void PGXP_CPU_SW(u32 instr, u32 rtVal, u32 addr)
+void CPU_SW(u32 instr, u32 rtVal, u32 addr)
 {
   // Mem[Rs + Im] = Rt
   Validate(&CPU_reg[rt(instr)], rtVal);

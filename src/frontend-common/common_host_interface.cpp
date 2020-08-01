@@ -8,11 +8,13 @@
 #include "controller_interface.h"
 #include "core/cdrom.h"
 #include "core/controller.h"
+#include "core/cpu_code_cache.h"
 #include "core/dma.h"
 #include "core/game_list.h"
 #include "core/gpu.h"
 #include "core/host_display.h"
 #include "core/mdec.h"
+#include "core/pgxp.h"
 #include "core/save_state_version.h"
 #include "core/spu.h"
 #include "core/system.h"
@@ -1301,7 +1303,13 @@ void CommonHostInterface::RegisterGraphicsHotkeys()
                    {
                      g_settings.gpu_pgxp_enable = !g_settings.gpu_pgxp_enable;
                      ReportFormattedMessage("PGXP is now %s.", g_settings.gpu_pgxp_enable ? "enabled" : "disabled");
-                     UpdatePGXPMode(true);
+
+                     if (g_settings.gpu_pgxp_enable)
+                       PGXP::Initialize();
+
+                     // we need to recompile all blocks if pgxp is toggled on/off
+                     if (g_settings.IsUsingCodeCache())
+                       CPU::CodeCache::Flush();
                    }
                  });
 

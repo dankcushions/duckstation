@@ -77,19 +77,7 @@ void Initialize()
   GTE::Initialize();
 
   if (g_settings.gpu_pgxp_enable)
-    SetPGXPMode();
-}
-
-void SetPGXPMode()
-{
-  u32 mode = PGXP_MODE_MEMORY | PGXP_MODE_GTE;
-  if (g_settings.gpu_pgxp_texture_correction)
-    mode |= PGXP_TEXTURE_CORRECTION;
-  if (g_settings.gpu_pgxp_vertex_cache)
-    mode |= PGXP_VERTEX_CACHE;
-
-  PGXP::PGXP_SetModes(mode);
-  PGXP::PGXP_Init();
+    PGXP::Initialize();
 }
 
 void Shutdown()
@@ -119,7 +107,7 @@ void Reset()
   SetPC(RESET_VECTOR);
 
   if (g_settings.gpu_pgxp_enable)
-    PGXP::PGXP_Init();
+    PGXP::Initialize();
 }
 
 bool DoState(StateWrapper& sw)
@@ -156,6 +144,9 @@ bool DoState(StateWrapper& sw)
 
   if (!GTE::DoState(sw))
     return false;
+
+  if (sw.IsReading())
+    PGXP::Initialize();
 
   return !sw.HasError();
 }
@@ -913,10 +904,12 @@ void ExecuteInstruction()
       if (!ReadMemoryByte(addr, &value))
         return;
 
-      WriteRegDelayed(inst.i.rt, SignExtend32(value));
+      const u32 sxvalue = SignExtend32(value);
+
+      WriteRegDelayed(inst.i.rt, sxvalue);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_CPU_LB(inst.bits, value, addr);
+        PGXP::CPU_LBx(inst.bits, sxvalue, addr);
     }
     break;
 
@@ -927,10 +920,11 @@ void ExecuteInstruction()
       if (!ReadMemoryHalfWord(addr, &value))
         return;
 
-      WriteRegDelayed(inst.i.rt, SignExtend32(value));
+      const u32 sxvalue = SignExtend32(value);
+      WriteRegDelayed(inst.i.rt, sxvalue);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_CPU_LH(inst.bits, value, addr);
+        PGXP::CPU_LHx(inst.bits, sxvalue, addr);
     }
     break;
 
@@ -944,7 +938,7 @@ void ExecuteInstruction()
       WriteRegDelayed(inst.i.rt, value);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_CPU_LW(inst.bits, value, addr);
+        PGXP::CPU_LW(inst.bits, value, addr);
     }
     break;
 
@@ -955,10 +949,11 @@ void ExecuteInstruction()
       if (!ReadMemoryByte(addr, &value))
         return;
 
-      WriteRegDelayed(inst.i.rt, ZeroExtend32(value));
+      const u32 zxvalue = ZeroExtend32(value);
+      WriteRegDelayed(inst.i.rt, zxvalue);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_CPU_LBU(inst.bits, value, addr);
+        PGXP::CPU_LBx(inst.bits, zxvalue, addr);
     }
     break;
 
@@ -969,10 +964,11 @@ void ExecuteInstruction()
       if (!ReadMemoryHalfWord(addr, &value))
         return;
 
-      WriteRegDelayed(inst.i.rt, ZeroExtend32(value));
+      const u32 zxvalue = ZeroExtend32(value);
+      WriteRegDelayed(inst.i.rt, zxvalue);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_CPU_LHU(inst.bits, value, addr);
+        PGXP::CPU_LHx(inst.bits, zxvalue, addr);
     }
     break;
 
@@ -1003,7 +999,7 @@ void ExecuteInstruction()
       WriteRegDelayed(inst.i.rt, new_value);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_CPU_LW(inst.bits, new_value, addr);
+        PGXP::CPU_LW(inst.bits, new_value, addr);
     }
     break;
 
@@ -1014,7 +1010,7 @@ void ExecuteInstruction()
       WriteMemoryByte(addr, value);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_CPU_SB(inst.bits, value, addr);
+        PGXP::CPU_SB(inst.bits, value, addr);
     }
     break;
 
@@ -1025,7 +1021,7 @@ void ExecuteInstruction()
       WriteMemoryHalfWord(addr, value);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_CPU_SH(inst.bits, value, addr);
+        PGXP::CPU_SH(inst.bits, value, addr);
     }
     break;
 
@@ -1036,7 +1032,7 @@ void ExecuteInstruction()
       WriteMemoryWord(addr, value);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_CPU_SW(inst.bits, value, addr);
+        PGXP::CPU_SW(inst.bits, value, addr);
     }
     break;
 
@@ -1066,7 +1062,7 @@ void ExecuteInstruction()
       WriteMemoryWord(aligned_addr, new_value);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_CPU_SW(inst.bits, new_value, addr);
+        PGXP::CPU_SW(inst.bits, new_value, addr);
     }
     break;
 
@@ -1184,7 +1180,7 @@ void ExecuteInstruction()
       GTE::WriteRegister(ZeroExtend32(static_cast<u8>(inst.i.rt.GetValue())), value);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_GTE_LWC2(inst.bits, value, addr);
+        PGXP::CPU_LWC2(inst.bits, value, addr);
     }
     break;
 
@@ -1202,7 +1198,7 @@ void ExecuteInstruction()
       WriteMemoryWord(addr, value);
 
       if (g_settings.gpu_pgxp_enable)
-        PGXP::PGXP_GTE_SWC2(inst.bits, value, addr);
+        PGXP::CPU_SWC2(inst.bits, value, addr);
     }
     break;
 
@@ -1291,7 +1287,7 @@ void ExecuteCop2Instruction()
         WriteRegDelayed(inst.r.rt, value);
 
         if (g_settings.gpu_pgxp_enable)
-          PGXP::PGXP_GTE_CFC2(inst.bits, value, value);
+          PGXP::CPU_CFC2(inst.bits, value, value);
       }
       break;
 
@@ -1301,7 +1297,7 @@ void ExecuteCop2Instruction()
         GTE::WriteRegister(static_cast<u32>(inst.r.rd.GetValue()) + 32, value);
 
         if (g_settings.gpu_pgxp_enable)
-          PGXP::PGXP_GTE_CTC2(inst.bits, value, value);
+          PGXP::CPU_CTC2(inst.bits, value, value);
       }
       break;
 
@@ -1311,7 +1307,7 @@ void ExecuteCop2Instruction()
         WriteRegDelayed(inst.r.rt, value);
 
         if (g_settings.gpu_pgxp_enable)
-          PGXP::PGXP_GTE_MFC2(inst.bits, value, value);
+          PGXP::CPU_MFC2(inst.bits, value, value);
       }
       break;
 
@@ -1321,7 +1317,7 @@ void ExecuteCop2Instruction()
         GTE::WriteRegister(static_cast<u32>(inst.r.rd.GetValue()), value);
 
         if (g_settings.gpu_pgxp_enable)
-          PGXP::PGXP_GTE_MTC2(inst.bits, value, value);
+          PGXP::CPU_MTC2(inst.bits, value, value);
       }
       break;
 

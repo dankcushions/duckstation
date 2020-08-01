@@ -14,6 +14,7 @@
 #include "gpu.h"
 #include "gte.h"
 #include "host_display.h"
+#include "pgxp.h"
 #include "save_state_version.h"
 #include "system.h"
 #include <cmath>
@@ -495,14 +496,8 @@ void HostInterface::CheckForSettingsChanges(const Settings& old_settings)
       if (g_settings.IsUsingCodeCache())
         ReportFormattedMessage("PGXP %s, recompiling all blocks.", g_settings.gpu_pgxp_enable ? "enabled" : "disabled");
 
-      UpdatePGXPMode(true);
-    }
-
-    if (g_settings.gpu_pgxp_enable &&
-        (g_settings.gpu_pgxp_texture_correction != old_settings.gpu_pgxp_texture_correction ||
-         g_settings.gpu_pgxp_vertex_cache != old_settings.gpu_pgxp_vertex_cache))
-    {
-      UpdatePGXPMode(false);
+      if (g_settings.gpu_pgxp_enable)
+        PGXP::Initialize();
     }
 
     if (g_settings.cdrom_read_thread != old_settings.cdrom_read_thread)
@@ -665,14 +660,6 @@ void HostInterface::ModifyResolutionScale(s32 increment)
 
   if (!System::IsShutdown())
     g_gpu->UpdateSettings();
-}
-
-void HostInterface::UpdatePGXPMode(bool recompile_all_blocks)
-{
-  // we need to recompile all blocks if pgxp is toggled on/off
-  CPU::SetPGXPMode();
-  if (g_settings.IsUsingCodeCache() && recompile_all_blocks)
-    CPU::CodeCache::Flush();
 }
 
 void HostInterface::UpdateSoftwareCursor()

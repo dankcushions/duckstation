@@ -1119,13 +1119,9 @@ bool CodeGenerator::Compile_Load(const CodeBlockInstruction& cbi)
     case InstructionOp::lbu:
     {
       result = EmitLoadGuestMemory(cbi, address, RegSize_8);
-      if (g_settings.gpu_pgxp_enable)
-      {
-        EmitFunctionCallPtr(nullptr, (cbi.instruction.op == InstructionOp::lb) ? PGXP::PGXP_CPU_LB : PGXP::PGXP_CPU_LBU,
-                            Value::FromConstantU32(cbi.instruction.bits), result, address);
-      }
-
       ConvertValueSizeInPlace(&result, RegSize_32, (cbi.instruction.op == InstructionOp::lb));
+      if (g_settings.gpu_pgxp_enable)
+        EmitFunctionCallPtr(nullptr, PGXP::CPU_LBx, Value::FromConstantU32(cbi.instruction.bits), result, address);
     }
     break;
 
@@ -1133,13 +1129,10 @@ bool CodeGenerator::Compile_Load(const CodeBlockInstruction& cbi)
     case InstructionOp::lhu:
     {
       result = EmitLoadGuestMemory(cbi, address, RegSize_16);
-      if (g_settings.gpu_pgxp_enable)
-      {
-        EmitFunctionCallPtr(nullptr, (cbi.instruction.op == InstructionOp::lb) ? PGXP::PGXP_CPU_LH : PGXP::PGXP_CPU_LHU,
-                            Value::FromConstantU32(cbi.instruction.bits), result, address);
-      }
-
       ConvertValueSizeInPlace(&result, RegSize_32, (cbi.instruction.op == InstructionOp::lh));
+
+      if (g_settings.gpu_pgxp_enable)
+        EmitFunctionCallPtr(nullptr, PGXP::CPU_LHx, Value::FromConstantU32(cbi.instruction.bits), result, address);
     }
     break;
 
@@ -1147,7 +1140,7 @@ bool CodeGenerator::Compile_Load(const CodeBlockInstruction& cbi)
     {
       result = EmitLoadGuestMemory(cbi, address, RegSize_32);
       if (g_settings.gpu_pgxp_enable)
-        EmitFunctionCallPtr(nullptr, PGXP::PGXP_CPU_LW, Value::FromConstantU32(cbi.instruction.bits), result, address);
+        EmitFunctionCallPtr(nullptr, PGXP::CPU_LW, Value::FromConstantU32(cbi.instruction.bits), result, address);
     }
     break;
 
@@ -1179,7 +1172,7 @@ bool CodeGenerator::Compile_Store(const CodeBlockInstruction& cbi)
       EmitStoreGuestMemory(cbi, address, value.ViewAsSize(RegSize_8));
       if (g_settings.gpu_pgxp_enable)
       {
-        EmitFunctionCallPtr(nullptr, PGXP::PGXP_CPU_SB, Value::FromConstantU32(cbi.instruction.bits),
+        EmitFunctionCallPtr(nullptr, PGXP::CPU_SB, Value::FromConstantU32(cbi.instruction.bits),
                             value.ViewAsSize(RegSize_8), address);
       }
     }
@@ -1190,7 +1183,7 @@ bool CodeGenerator::Compile_Store(const CodeBlockInstruction& cbi)
       EmitStoreGuestMemory(cbi, address, value.ViewAsSize(RegSize_16));
       if (g_settings.gpu_pgxp_enable)
       {
-        EmitFunctionCallPtr(nullptr, PGXP::PGXP_CPU_SH, Value::FromConstantU32(cbi.instruction.bits),
+        EmitFunctionCallPtr(nullptr, PGXP::CPU_SH, Value::FromConstantU32(cbi.instruction.bits),
                             value.ViewAsSize(RegSize_16), address);
       }
     }
@@ -1200,7 +1193,7 @@ bool CodeGenerator::Compile_Store(const CodeBlockInstruction& cbi)
     {
       EmitStoreGuestMemory(cbi, address, value);
       if (g_settings.gpu_pgxp_enable)
-        EmitFunctionCallPtr(nullptr, PGXP::PGXP_CPU_SW, Value::FromConstantU32(cbi.instruction.bits), value, address);
+        EmitFunctionCallPtr(nullptr, PGXP::CPU_SW, Value::FromConstantU32(cbi.instruction.bits), value, address);
     }
     break;
 
@@ -1869,7 +1862,7 @@ bool CodeGenerator::Compile_cop2(const CodeBlockInstruction& cbi)
       DoGTERegisterWrite(reg, value);
 
       if (g_settings.gpu_pgxp_enable)
-        EmitFunctionCallPtr(nullptr, PGXP::PGXP_GTE_LWC2, Value::FromConstantU32(cbi.instruction.bits), value, address);
+        EmitFunctionCallPtr(nullptr, PGXP::CPU_LWC2, Value::FromConstantU32(cbi.instruction.bits), value, address);
     }
     else
     {
@@ -1877,7 +1870,7 @@ bool CodeGenerator::Compile_cop2(const CodeBlockInstruction& cbi)
       EmitStoreGuestMemory(cbi, address, value);
 
       if (g_settings.gpu_pgxp_enable)
-        EmitFunctionCallPtr(nullptr, PGXP::PGXP_GTE_SWC2, Value::FromConstantU32(cbi.instruction.bits), value, address);
+        EmitFunctionCallPtr(nullptr, PGXP::CPU_SWC2, Value::FromConstantU32(cbi.instruction.bits), value, address);
     }
 
     InstructionEpilogue(cbi);
@@ -1903,10 +1896,9 @@ bool CodeGenerator::Compile_cop2(const CodeBlockInstruction& cbi)
         // PGXP done first here before ownership is transferred.
         if (g_settings.gpu_pgxp_enable)
         {
-          EmitFunctionCallPtr(nullptr,
-                              (cbi.instruction.cop.CommonOp() == CopCommonInstruction::cfcn) ? PGXP::PGXP_GTE_CFC2 :
-                                                                                               PGXP::PGXP_GTE_MFC2,
-                              Value::FromConstantU32(cbi.instruction.bits), value, value);
+          EmitFunctionCallPtr(
+            nullptr, (cbi.instruction.cop.CommonOp() == CopCommonInstruction::cfcn) ? PGXP::CPU_CFC2 : PGXP::CPU_MFC2,
+            Value::FromConstantU32(cbi.instruction.bits), value, value);
         }
 
         m_register_cache.WriteGuestRegisterDelayed(cbi.instruction.r.rt, std::move(value));
@@ -1928,10 +1920,9 @@ bool CodeGenerator::Compile_cop2(const CodeBlockInstruction& cbi)
 
         if (g_settings.gpu_pgxp_enable)
         {
-          EmitFunctionCallPtr(nullptr,
-                              (cbi.instruction.cop.CommonOp() == CopCommonInstruction::ctcn) ? PGXP::PGXP_GTE_CTC2 :
-                                                                                               PGXP::PGXP_GTE_MTC2,
-                              Value::FromConstantU32(cbi.instruction.bits), value, value);
+          EmitFunctionCallPtr(
+            nullptr, (cbi.instruction.cop.CommonOp() == CopCommonInstruction::ctcn) ? PGXP::CPU_CTC2 : PGXP::CPU_MTC2,
+            Value::FromConstantU32(cbi.instruction.bits), value, value);
         }
 
         InstructionEpilogue(cbi);
