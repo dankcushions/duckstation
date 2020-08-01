@@ -19,6 +19,7 @@
  ***************************************************************************/
 
 #include "pgxp.h"
+#include <cmath>
 
 namespace PGXP {
 // pgxp_types.h
@@ -90,16 +91,8 @@ typedef enum
 static const PGXP_value PGXP_value_invalid_address = {0.f, 0.f, 0.f, {0}, 0, 0, INVALID_ADDRESS, 0, 0};
 static const PGXP_value PGXP_value_zero = {0.f, 0.f, 0.f, {0}, 0, VALID_ALL, 0, 0, 0};
 
-static void SetValue(PGXP_value* pV, u32 psxV);
-static void MakeValid(PGXP_value* pV, u32 psxV);
 static void Validate(PGXP_value* pV, u32 psxV);
 static void MaskValidate(PGXP_value* pV, u32 psxV, u32 mask, u32 validMask);
-static u32 ValueToTolerance(PGXP_value* pV, u32 psxV, float tolerance);
-
-static double f16Sign(double in);
-static double f16Unsign(double in);
-static double fu16Trunc(double in);
-static double f16Overflow(double in);
 
 typedef union
 {
@@ -117,9 +110,7 @@ typedef union
 } low_value;
 
 // pgxp_mem.h
-static char* PGXP_GetMem(); // return pointer to precision memory
 static u32 PGXP_ConvertAddress(u32 addr);
-
 static PGXP_value* GetPtr(u32 addr);
 static PGXP_value* ReadMem(u32 addr);
 
@@ -128,9 +119,6 @@ static void ValidateAndCopyMem16(PGXP_value* dest, u32 addr, u32 value, int sign
 
 static void WriteMem(PGXP_value* value, u32 addr);
 static void WriteMem16(PGXP_value* src, u32 addr);
-
-static void PGXP_SetLastDMA(u32 addr);
-static u32 PGXP_GetLastDMA();
 
 // pgxp_gpu.h
 void PGXP_CacheVertex(short sx, short sy, const PGXP_value* _pVertex);
@@ -145,32 +133,6 @@ static PGXP_value* CPU_reg = CPU_reg_mem;
 static PGXP_value* CP0_reg = CP0_reg_mem;
 
 // pgxp_value.c
-void SetValue(PGXP_value* pV, u32 psxV)
-{
-  psx_value psx;
-  psx.d = psxV;
-
-  pV->x = psx.sw.l;
-  pV->y = psx.sw.h;
-  pV->z = 0.f;
-  pV->flags = VALID_01;
-  pV->value = psx.d;
-}
-
-void MakeValid(PGXP_value* pV, u32 psxV)
-{
-  psx_value psx;
-  psx.d = psxV;
-  if (VALID_01 != (pV->flags & VALID_01))
-  {
-    pV->x = psx.sw.l;
-    pV->y = psx.sw.h;
-    pV->z = 0.f;
-    pV->flags |= VALID_01;
-    pV->value = psx.d;
-  }
-}
-
 void Validate(PGXP_value* pV, u32 psxV)
 {
   // assume pV is not NULL
@@ -181,45 +143,6 @@ void MaskValidate(PGXP_value* pV, u32 psxV, u32 mask, u32 validMask)
 {
   // assume pV is not NULL
   pV->flags &= ((pV->value & mask) == (psxV & mask)) ? ALL : (ALL ^ (validMask));
-}
-
-u32 ValueToTolerance(PGXP_value* pV, u32 psxV, float tolerance)
-{
-  psx_value psx;
-  psx.d = psxV;
-  u32 retFlags = VALID_ALL;
-
-  if (fabs(pV->x - psx.sw.l) >= tolerance)
-    retFlags = retFlags & (VALID_1 | VALID_2 | VALID_3);
-
-  if (fabs(pV->y - psx.sw.h) >= tolerance)
-    retFlags = retFlags & (VALID_0 | VALID_2 | VALID_3);
-
-  return retFlags;
-}
-
-/// float logical arithmetic ///
-
-double f16Sign(double in)
-{
-  u32 s = in * (double)((u32)1 << 16);
-  return ((double)*((s32*)&s)) / (double)((s32)1 << 16);
-}
-double f16Unsign(double in)
-{
-  return (in >= 0) ? in : ((double)in + (double)USHRT_MAX + 1);
-}
-double fu16Trunc(double in)
-{
-  u32 u = in * (double)((u32)1 << 16);
-  return (double)u / (double)((u32)1 << 16);
-}
-double f16Overflow(double in)
-{
-  double out = 0;
-  s64 v = ((s64)in) >> 16;
-  out = v;
-  return out;
 }
 
 // pgxp_mem.c
@@ -234,76 +157,9 @@ void PGXP_InitMem()
   memset(Mem, 0, sizeof(Mem));
 }
 
-char* PGXP_GetMem()
-{
-  return (char*)(Mem); // Config.PGXP_GTE ? (char*)(Mem) : NULL;
-}
-
-/*  Playstation Memory Map (from Playstation doc by Joshua Walker)
-0x0000_0000-0x0000_ffff		Kernel (64K)
-0x0001_0000-0x001f_ffff		User Memory (1.9 Meg)
-
-0x1f00_0000-0x1f00_ffff		Parallel Port (64K)
-
-0x1f80_0000-0x1f80_03ff		Scratch Pad (1024 bytes)
-
-0x1f80_1000-0x1f80_2fff		Hardware Registers (8K)
-
-0x1fc0_0000-0x1fc7_ffff		BIOS (512K)
-
-0x8000_0000-0x801f_ffff		Kernel and User Memory Mirror (2 Meg) Cached
-0x9fc0_0000-0x9fc7_ffff		BIOS Mirror (512K) Cached
-
-0xa000_0000-0xa01f_ffff		Kernel and User Memory Mirror (2 Meg) Uncached
-0xbfc0_0000-0xbfc7_ffff		BIOS Mirror (512K) Uncached
-*/
-void ValidateAddress(u32 addr)
-{
-  int* pi = NULL;
-
-  if ((addr >= 0x00000000) && (addr <= 0x007fffff))
-  {
-  } // Kernel + User Memory x 8
-  else if ((addr >= 0x1f000000) && (addr <= 0x1f00ffff))
-  {
-  } // Parallel Port
-  else if ((addr >= 0x1f800000) && (addr <= 0x1f8003ff))
-  {
-  } // Scratch Pad
-  else if ((addr >= 0x1f801000) && (addr <= 0x1f802fff))
-  {
-  } // Hardware Registers
-  else if ((addr >= 0x1fc00000) && (addr <= 0x1fc7ffff))
-  {
-  } // Bios
-  else if ((addr >= 0x80000000) && (addr <= 0x807fffff))
-  {
-  } // Kernel + User Memory x 8 Cached mirror
-  else if ((addr >= 0x9fc00000) && (addr <= 0x9fc7ffff))
-  {
-  } // Bios Cached Mirror
-  else if ((addr >= 0xa0000000) && (addr <= 0xa07fffff))
-  {
-  } // Kernel + User Memory x 8 Uncached mirror
-  else if ((addr >= 0xbfc00000) && (addr <= 0xbfc7ffff))
-  {
-  } // Bios Uncached Mirror
-  else if (addr == 0xfffe0130)
-  {
-  } // Used for cache flushing
-  else
-  {
-    //	*pi = 5;
-  }
-}
-
 u32 PGXP_ConvertAddress(u32 addr)
 {
-  u32 memOffs = 0;
   u32 paddr = addr;
-
-  //	ValidateAddress(addr);
-
   switch (paddr >> 24)
   {
     case 0x80:
@@ -382,13 +238,13 @@ void ValidateAndCopyMem16(PGXP_value* dest, u32 addr, u32 value, int sign)
     // determine if high or low word
     if ((addr % 4) == 2)
     {
-      val.w.h = value;
+      val.w.h = static_cast<u16>(value);
       mask.w.h = 0xFFFF;
       validMask = VALID_1;
     }
     else
     {
-      val.w.l = value;
+      val.w.l = static_cast<u16>(value);
       mask.w.l = 0xFFFF;
       validMask = VALID_0;
     }
@@ -458,18 +314,6 @@ void WriteMem16(PGXP_value* src, u32 addr)
     // dest->valid = dest->valid && src->valid;
     dest->gFlags |= src->gFlags; // inherit flags from both values (?)
   }
-}
-
-u32 lastDMAAddr = 0;
-
-void PGXP_SetLastDMA(u32 addr)
-{
-  lastDMAAddr = PGXP_ConvertAddress(addr);
-}
-
-u32 PGXP_GetLastDMA()
-{
-  return lastDMAAddr;
 }
 
 // pgxp_main.c
@@ -594,7 +438,7 @@ float PGXP_NCLIP()
   float nclip = ((SX0 * SY1) + (SX1 * SY2) + (SX2 * SY0) - (SX0 * SY2) - (SX1 * SY0) - (SX2 * SY1));
 
   // ensure fractional values are not incorrectly rounded to 0
-  float nclipAbs = fabs(nclip);
+  float nclipAbs = std::abs(nclip);
   if ((0.1f < nclipAbs) && (nclipAbs < 1.f))
     nclip += (nclip < 0.f ? -1 : 1);
 
@@ -612,18 +456,6 @@ float PGXP_NCLIP()
   // float CZ = ((AX * BY) - (AY * BX)) * (1 << 12);
 
   return nclip;
-}
-
-static PGXP_value PGXP_MFC2_int(u32 reg)
-{
-  switch (reg)
-  {
-    case 15:
-      GTE_data_reg[reg] = SXYP = SXY2;
-      break;
-  }
-
-  return GTE_data_reg[reg];
 }
 
 static void PGXP_MTC2_int(PGXP_value value, u32 reg)
@@ -649,49 +481,10 @@ static void PGXP_MTC2_int(PGXP_value value, u32 reg)
 // Data transfer tracking
 ////////////////////////////////////
 
-void MFC2(int reg)
-{
-  psx_value val;
-  val.d = GTE_data_reg[reg].value;
-  switch (reg)
-  {
-    case 1:
-    case 3:
-    case 5:
-    case 8:
-    case 9:
-    case 10:
-    case 11:
-      GTE_data_reg[reg].value = (s32)val.sw.l;
-      GTE_data_reg[reg].y = 0.f;
-      break;
-
-    case 7:
-    case 16:
-    case 17:
-    case 18:
-    case 19:
-      GTE_data_reg[reg].value = (u32)val.w.l;
-      GTE_data_reg[reg].y = 0.f;
-      break;
-
-    case 15:
-      GTE_data_reg[reg] = SXY2;
-      break;
-
-    case 28:
-    case 29:
-      //	psxRegs.CP2D.p[reg].d = LIM(IR1 >> 7, 0x1f, 0, 0) | (LIM(IR2 >> 7, 0x1f, 0, 0) << 5) | (LIM(IR3 >> 7, 0x1f, 0,
-      // 0) << 10);
-      break;
-  }
-}
-
 void PGXP_GTE_MFC2(u32 instr, u32 rtVal, u32 rdVal)
 {
   // CPU[Rt] = GTE_D[Rd]
   Validate(&GTE_data_reg[rd(instr)], rdVal);
-  // MFC2(rd(instr));
   CPU_reg[rt(instr)] = GTE_data_reg[rd(instr)];
   CPU_reg[rt(instr)].value = rtVal;
 }
@@ -847,26 +640,25 @@ PGXP_value* PGXP_GetCachedVertex(short sx, short sy)
   return NULL;
 }
 
+static float TruncateVertexPosition(float p)
+{
+  const s32 int_part = static_cast<s32>(p);
+  const float int_part_f = static_cast<float>(int_part);
+  return static_cast<float>(static_cast<s16>(int_part << 5) >> 5) + (p - int_part_f);
+}
+
 bool PGXP_GetVertex(u32 addr, u32 value, int x, int y, int xOffs, int yOffs, float* out_x, float* out_y, float* out_w)
 {
-  PGXP_value* vert = ReadMem(addr);
-
-  float px, py, pw;
-  bool valid_w;
-
+  const PGXP_value* vert = ReadMem(addr);
   if (vert && ((vert->flags & VALID_01) == VALID_01) && (vert->value == value))
   {
     // There is a value here with valid X and Y coordinates
-    px = (vert->x + xOffs);
-    py = (vert->y + yOffs);
-    pw = vert->z / 32768.0f;
-    valid_w = true;
+    *out_x = TruncateVertexPosition(vert->x) + static_cast<float>(xOffs);
+    *out_y = TruncateVertexPosition(vert->y) + static_cast<float>(yOffs);
+    *out_w = vert->z / 32768.0f;
 
-    if ((vert->flags & VALID_2) != VALID_2)
-    {
-      // This value does not have a valid W coordinate
-      valid_w = false;
-    }
+    // This value does not have a valid W coordinate
+    return ((vert->flags & VALID_2) == VALID_2);
   }
   else
   {
@@ -879,39 +671,21 @@ bool PGXP_GetVertex(u32 addr, u32 value, int x, int y, int xOffs, int yOffs, flo
     {
       // a value is found, it is from the current session and is unambiguous (there was only one value recorded at that
       // position)
-      px = vert->x + xOffs;
-      py = vert->y + yOffs;
-      pw = vert->z / 32768.0f;
-      valid_w = 0; // iCB: Getting the wrong w component causes too great an error when using perspective correction so
-                   // disable it
+      *out_x = TruncateVertexPosition(vert->x) + static_cast<float>(xOffs);
+      *out_y = TruncateVertexPosition(vert->y) + static_cast<float>(yOffs);
+      *out_w = vert->z / 32768.0f;
+      return false; // iCB: Getting the wrong w component causes too great an error when using perspective correction
+                    // so disable it
     }
     else
     {
       // no valid value can be found anywhere, use the native PSX data
-      *out_x = x;
-      *out_y = y;
+      *out_x = static_cast<float>(x);
+      *out_y = static_cast<float>(y);
       *out_w = 1.0f;
       return false;
     }
   }
-
-  // clear upper 5 bits in x and y
-  px *= (1 << 16);
-  py *= (1 << 16);
-  x = (float)(((s64)x << 5) >> 5);
-  y = (float)(((s64)y << 5) >> 5);
-  px /= (1 << 16);
-  py /= (1 << 16);
-
-  if (abs((float)x - px) > 2.0 || abs((float)y - py) > 2.0)
-  {
-    printf("%d %d -> %f %f\n", x, y, px, py);
-  }
-
-  *out_x = px;
-  *out_y = py;
-  *out_w = pw;
-  return valid_w;
 }
 
 // pgxp_cpu.c
