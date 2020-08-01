@@ -429,7 +429,8 @@ void DMA::UnhaltTransfer(TickCount ticks)
 TickCount DMA::TransferMemoryToDevice(Channel channel, u32 address, u32 increment, u32 word_count)
 {
   const u32* src_pointer = reinterpret_cast<u32*>(Bus::g_ram + address);
-  if (static_cast<s32>(increment) < 0 || ((address + (increment * word_count)) & ADDRESS_MASK) <= address)
+  if (channel != Channel::GPU &&
+      (static_cast<s32>(increment) < 0 || ((address + (increment * word_count)) & ADDRESS_MASK) <= address))
   {
     // Use temp buffer if it's wrapping around
     if (m_transfer_buffer.size() < word_count)
@@ -448,17 +449,18 @@ TickCount DMA::TransferMemoryToDevice(Channel channel, u32 address, u32 incremen
   {
     case Channel::GPU:
     {
-      std::vector<u64> temp;
-      temp.reserve(word_count);
-      for (u32 i = 0; i < word_count; i++)
+      if (g_gpu->BeginDMAWrite())
       {
-        temp.push_back((ZeroExtend64(address) << 32) | ZeroExtend64(*src_pointer));
-        address = (address + increment) & ADDRESS_MASK;
-        src_pointer++;
+        u8* ram_pointer = Bus::g_ram;
+        for (u32 i = 0; i < word_count; i++)
+        {
+          u32 value;
+          std::memcpy(&value, &ram_pointer[address], sizeof(u32));
+          g_gpu->DMAWrite(address, value);
+          address = (address + increment) & ADDRESS_MASK;
+        }
+        g_gpu->EndDMAWrite();
       }
-
-      g_gpu->DMAWrite(temp.data(), word_count);
-      // m_gpu->DMAWrite(src_pointer, word_count);
     }
     break;
 

@@ -136,7 +136,13 @@ public:
 
   // DMA access
   void DMARead(u32* words, u32 word_count);
-  void DMAWrite(const u64* words, u32 word_count);
+
+  ALWAYS_INLINE bool BeginDMAWrite() const { return (m_GPUSTAT.dma_direction == DMADirection::CPUtoGP0); }
+  ALWAYS_INLINE void DMAWrite(u32 address, u32 value)
+  {
+    m_fifo.Push((ZeroExtend64(address) << 32) | ZeroExtend64(value));
+  }
+  void EndDMAWrite();
 
   /// Returns the number of pending GPU ticks.
   TickCount GetPendingCRTCTicks() const;
